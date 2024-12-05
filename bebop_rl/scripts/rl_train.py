@@ -1,50 +1,79 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import random
 
 import rospy
-from std_srvs.srv import Empty
-from std_msgs.msg import String
-from mav_msgs.msg import Actuators
-from gazebo_msgs.srv import SetModelState
 from gazebo_msgs.msg import ModelState, ModelStates
+from gazebo_msgs.srv import SetModelState
+from geometry_msgs.msg import Pose
+from mav_msgs.msg import Actuators
+from std_msgs.msg import String
+from std_srvs.srv import Empty
+
+import gym
+import numpy as np
 
 
 # Constants
-MAX_POSITION = 5
-MIN_POSITION = -5
+MIN_SPAWN_POSITION = -5
+MAX_SPAWN_POSITION = 5
+MIN_OBSERVE_POSITION = -10
+MAX_OBSERVE_POSITION = 10
+TARGET_POSITION = np.array([0, 0, 2], dtype=np.float32)
 
 
-class RLTrain:
+class BebopEnv(gym.Env):
     def __init__(self):
+        super(BebopEnv, self).__init__()
         rospy.init_node("rl_train", anonymous=True)
 
-        self.rate = rospy.Rate(0.25)
+        # define the agent and target location
+        self._agent_location = np.array([-1, -1, -1], dtype=np.float32)
+        self._target_location = np.array([-1, -1, -1], dtype=np.float32)
 
-        # bebop state
+        # assume using only position as x, y, z
+        self.observation_space = gym.spaces.Dict(
+            {
+                "agent": gym.spaces.Box(
+                    MIN_OBSERVE_POSITION, 
+                    MAX_OBSERVE_POSITION, 
+                    shape=(3,), 
+                    dtype=np.float32
+                ),
+                "target": gym.spaces.Box(
+                    MIN_OBSERVE_POSITION,
+                    MAX_OBSERVE_POSITION, 
+                    shape=(3,), 
+                    dtype=np.float32
+                    ),
+            }
+        )
+
+        # actions corresponding to motor commands
+        self.action_space = gym.spaces.Box(
+            low=0, high=1000, shape=(4,), dtype=np.float32
+        )
+
+        # ROS integration
         self.bebop_state = ModelState()
-
-        # gazebo bebop state subscriber
         self.bebop_state_sub = rospy.Subscriber(
             "/gazebo/model_states", ModelStates, self.bebop_state_callback
         )
-
-        # motor command publisher
         self.motor_cmd_pub = rospy.Publisher(
             "/bebop/command/motors", Actuators, queue_size=10
         )
-
-        # reset world service
-        self.reset_world_service = rospy.ServiceProxy("/gazebo/reset_world", Empty)
-        self.reset_world_service.wait_for_service()
-
-        # set model state service
+        self.reset_world_service = rospy.ServiceProxy(
+            "/gazebo/reset_world", Empty
+        )
         self.set_model_state_service = rospy.ServiceProxy(
             "/gazebo/set_model_state", SetModelState
         )
+
+        self.reset_world_service.wait_for_service()
         self.set_model_state_service.wait_for_service()
 
     def bebop_state_callback(self, data):
+        # update the bebop state
         try:
             idx = data.name.index("bebop")
             self.bebop_state.model_name = "bebop"
@@ -54,40 +83,81 @@ class RLTrain:
         except ValueError:
             rospy.logwarn("Bebop model not found in ModelStates")
 
-    def spawn_bebop(self):
-        # reset world
+    def _get_obs(self):
+        self._agent_location = np.array([
+            self.bebop_state.pose.position.x,
+            self.bebop_state.pose.position.y,
+            self.bebop_state.pose.position.z,
+        ])
+        return {"agent": self._agent_location, "target": self._target_location}
+
+    def _get_info(self):
+        return {
+            "distance": np.linalg.norm(
+                self._agent_location - self._target_location, ord=2
+            )
+        }
+
+    def reset(self, seed):
+        # reset the Gazebo world and spawn bebop at a random position
+        super().reset(seed=seed)
+        rospy.loginfo("Resetting world, spawning Bebop at random position")
         self.reset_world_service()
 
-        # spawn bebop at random position
-        new_state = ModelState()
-        new_state.model_name = "bebop"
-        new_state.pose.position.x = random.uniform(MIN_POSITION, MAX_POSITION)
-        new_state.pose.position.y = random.uniform(MIN_POSITION, MAX_POSITION)
-        new_state.pose.position.z = random.uniform(0, MAX_POSITION)
-        self.set_model_state_service(new_state)
-        
-        rospy.loginfo("Resetting world, spawning Bebop at random position")
+        position_range = MAX_SPAWN_POSITION - MIN_SPAWN_POSITION
+        self._agent_location = np.random.rand(3) * position_range + MIN_SPAWN_POSITION
+        self.bebop_state.model_name = "bebop"
+        self.bebop_state.pose.position.x = self._agent_location[0]
+        self.bebop_state.pose.position.y = self._agent_location[1]
+        self.bebop_state.pose.position.z = self._agent_location[2]
+        self.set_model_state_service(self.bebop_state)
+    
+        self._target_location = TARGET_POSITION
 
-    def train_loop(self):
-        while not rospy.is_shutdown():
-            # spawn bebop at random position
-            self.spawn_bebop()
+        observation = self._get_obs()
+        info = self._get_info()
 
-            # set motor command
-            motor_cmd = Actuators()
-            motor_cmd.angular_velocities = [400, 400, 400, 400]
-            self.motor_cmd_pub.publish(motor_cmd)
-            rospy.loginfo(
-                "Publishing motor command: {}".format(motor_cmd.angular_velocities)
-            )
+        return observation, info
 
-            # wait defined time
-            self.rate.sleep()
+    def step(self, action):
+        # send the motor commands to the bebop
+        motor_cmd = Actuators()
+        motor_cmd.angular_velocities = action.tolist()
+        self.motor_cmd_pub.publish(motor_cmd)
+
+        # get the new observation
+        observation = self._get_obs()
+        info = self._get_info()
+        reward = -info["distance"]
+        terminated = info["distance"] < 0.1
+
+        return observation, reward, terminated, False, info
+
+  
+
+# class RLTrain:
+#     def __init__(self):
+#         self.env = DummyVecEnv([lambda: BebopEnv()])
+#         self.model = PPO("MlpPolicy", self.env, verbose=1)
+
+#     def train(self, timesteps=10000):
+#         rospy.loginfo("Starting training...")
+#         self.model.learn(total_timesteps=timesteps)
+#         rospy.loginfo("Training complete. Saving model...")
+#         self.model.save("bebop_rl_model")
 
 
 if __name__ == "__main__":
     try:
-        rltrain = RLTrain()
-        rltrain.train_loop()
+        gym.register(
+            id="BebopEnv-v0",
+            entry_point=BebopEnv,
+        )
+        env = gym.make(
+            "BebopEnv-v0",
+            max_episode_steps=1000,
+        )
+        # rl_train = RLTrain()
+        # rl_train.train(timesteps=10000)
     except rospy.ROSInterruptException:
         pass
