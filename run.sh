@@ -6,6 +6,11 @@ IMAGE=arl_project:latest
 XSOCK=/tmp/.X11-unix
 XAUTH=/tmp/.docker.xauth
 
+if ! [ -d "bebop_rl" ]; then
+	echo "Error: directory `bebop_rl` not found. Please run this script from the root of the ARL-project repository."
+	exit 1
+fi
+
 if ! [ -f "${XAUTH}" ]; then
   touch "${XAUTH}"
   xauth nlist "${DISPLAY}" | sed -e 's/^..../ffff/' | xauth -f "${XAUTH}" nmerge -
@@ -29,6 +34,7 @@ else
     --env=XAUTHORITY="${XAUTH}" \
     --volume="${XAUTH}":"${XAUTH}" \
     --volume="${XSOCK}":"${XSOCK}" \
+    --volume "${PWD}"/bebop_rl:/root/catkin_ws/src/bebop_rl \
     --network=host \
     --privileged \
     --gpus=all \
