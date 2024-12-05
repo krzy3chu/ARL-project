@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/root/catkin_ws/.venv/bin/python
 
 import random
 
@@ -35,17 +35,17 @@ class BebopEnv(gym.Env):
         self.observation_space = gym.spaces.Dict(
             {
                 "agent": gym.spaces.Box(
-                    MIN_OBSERVE_POSITION, 
-                    MAX_OBSERVE_POSITION, 
-                    shape=(3,), 
-                    dtype=np.float32
+                    MIN_OBSERVE_POSITION,
+                    MAX_OBSERVE_POSITION,
+                    shape=(3,),
+                    dtype=np.float32,
                 ),
                 "target": gym.spaces.Box(
                     MIN_OBSERVE_POSITION,
-                    MAX_OBSERVE_POSITION, 
-                    shape=(3,), 
-                    dtype=np.float32
-                    ),
+                    MAX_OBSERVE_POSITION,
+                    shape=(3,),
+                    dtype=np.float32,
+                ),
             }
         )
 
@@ -62,9 +62,7 @@ class BebopEnv(gym.Env):
         self.motor_cmd_pub = rospy.Publisher(
             "/bebop/command/motors", Actuators, queue_size=10
         )
-        self.reset_world_service = rospy.ServiceProxy(
-            "/gazebo/reset_world", Empty
-        )
+        self.reset_world_service = rospy.ServiceProxy("/gazebo/reset_world", Empty)
         self.set_model_state_service = rospy.ServiceProxy(
             "/gazebo/set_model_state", SetModelState
         )
@@ -84,11 +82,13 @@ class BebopEnv(gym.Env):
             rospy.logwarn("Bebop model not found in ModelStates")
 
     def _get_obs(self):
-        self._agent_location = np.array([
-            self.bebop_state.pose.position.x,
-            self.bebop_state.pose.position.y,
-            self.bebop_state.pose.position.z,
-        ])
+        self._agent_location = np.array(
+            [
+                self.bebop_state.pose.position.x,
+                self.bebop_state.pose.position.y,
+                self.bebop_state.pose.position.z,
+            ]
+        )
         return {"agent": self._agent_location, "target": self._target_location}
 
     def _get_info(self):
@@ -111,7 +111,7 @@ class BebopEnv(gym.Env):
         self.bebop_state.pose.position.y = self._agent_location[1]
         self.bebop_state.pose.position.z = self._agent_location[2]
         self.set_model_state_service(self.bebop_state)
-    
+
         self._target_location = TARGET_POSITION
 
         observation = self._get_obs()
@@ -133,19 +133,6 @@ class BebopEnv(gym.Env):
 
         return observation, reward, terminated, False, info
 
-  
-
-# class RLTrain:
-#     def __init__(self):
-#         self.env = DummyVecEnv([lambda: BebopEnv()])
-#         self.model = PPO("MlpPolicy", self.env, verbose=1)
-
-#     def train(self, timesteps=10000):
-#         rospy.loginfo("Starting training...")
-#         self.model.learn(total_timesteps=timesteps)
-#         rospy.loginfo("Training complete. Saving model...")
-#         self.model.save("bebop_rl_model")
-
 
 if __name__ == "__main__":
     try:
@@ -157,7 +144,5 @@ if __name__ == "__main__":
             "BebopEnv-v0",
             max_episode_steps=1000,
         )
-        # rl_train = RLTrain()
-        # rl_train.train(timesteps=10000)
     except rospy.ROSInterruptException:
         pass

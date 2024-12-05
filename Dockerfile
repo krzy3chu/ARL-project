@@ -71,7 +71,14 @@ RUN /bin/bash -c "source /opt/ros/melodic/setup.bash && \
     cd parrot_arsdk && \
     chmod +x script/download_and_strip_arsdk.sh && \
     ./script/download_and_strip_arsdk.sh "
-    
+
+# Setup python3.8 venv
+RUN apt-get update && apt-get install -y python3-yaml python3.8 && \
+	python3.8 -m pip install virtualenv && \
+	cd /root/catkin_ws && \
+	python3.8 -m virtualenv .venv && \
+	.venv/bin/pip install rospkg catkin_pkg gym
+
 # Modify CMakeLists.txt in BebopS
 RUN /bin/bash -c "sed -i 's/hovering_example/hovering_example2/' /root/catkin_ws/src/BebopS/CMakeLists.txt"
 

@@ -30,6 +30,7 @@ else
     -it \
     --env=DISPLAY="${DISPLAY}"  \
     --env=QT_X11_NO_MITSHM=1 \
+    --env=XDG_RUNTIME_DIR=/tmp \
     --env=XAUTHORITY="${XAUTH}" \
     --volume="${XAUTH}":"${XAUTH}" \
     --volume="${XSOCK}":"${XSOCK}" \
