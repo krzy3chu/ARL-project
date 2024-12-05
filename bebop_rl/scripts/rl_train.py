@@ -12,6 +12,7 @@ from std_srvs.srv import Empty
 
 import gym
 import numpy as np
+from tqdm import tqdm
 
 
 # Constants
@@ -19,7 +20,12 @@ MIN_SPAWN_POSITION = -5
 MAX_SPAWN_POSITION = 5
 MIN_OBSERVE_POSITION = -10
 MAX_OBSERVE_POSITION = 10
-TARGET_POSITION = np.array([0, 0, 2], dtype=np.float32)
+TARGET_POSITION = np.array([0, 0, 5], dtype=np.float32)
+MIN_ROTOR_SPEED = -1000
+MAX_ROTOR_SPEED = 1000
+TIME_STEP = 0.05
+MAX_STEPS = 200
+N_EPISODES = 20
 
 
 class BebopEnv(gym.Env):
@@ -51,7 +57,7 @@ class BebopEnv(gym.Env):
 
         # actions corresponding to motor commands
         self.action_space = gym.spaces.Box(
-            low=0, high=1000, shape=(4,), dtype=np.float32
+            low=MIN_ROTOR_SPEED, high=MAX_ROTOR_SPEED, shape=(4,), dtype=np.float32
         )
 
         # ROS integration
@@ -88,7 +94,7 @@ class BebopEnv(gym.Env):
                 self.bebop_state.pose.position.y,
                 self.bebop_state.pose.position.z,
             ]
-        )
+        ).astype(np.float32)
         return {"agent": self._agent_location, "target": self._target_location}
 
     def _get_info(self):
@@ -98,7 +104,7 @@ class BebopEnv(gym.Env):
             )
         }
 
-    def reset(self, seed):
+    def reset(self, seed: int = None, options: dict = None):
         # reset the Gazebo world and spawn bebop at a random position
         super().reset(seed=seed)
         rospy.loginfo("Resetting world, spawning Bebop at random position")
@@ -106,11 +112,12 @@ class BebopEnv(gym.Env):
 
         position_range = MAX_SPAWN_POSITION - MIN_SPAWN_POSITION
         self._agent_location = np.random.rand(3) * position_range + MIN_SPAWN_POSITION
-        self.bebop_state.model_name = "bebop"
-        self.bebop_state.pose.position.x = self._agent_location[0]
-        self.bebop_state.pose.position.y = self._agent_location[1]
-        self.bebop_state.pose.position.z = self._agent_location[2]
-        self.set_model_state_service(self.bebop_state)
+        new_bebop_state = ModelState()
+        new_bebop_state.model_name = "bebop"
+        new_bebop_state.pose.position.x = self._agent_location[0]
+        new_bebop_state.pose.position.y = self._agent_location[1]
+        new_bebop_state.pose.position.z = self._agent_location[2] + MAX_SPAWN_POSITION
+        self.set_model_state_service(new_bebop_state)
 
         self._target_location = TARGET_POSITION
 
@@ -125,24 +132,43 @@ class BebopEnv(gym.Env):
         motor_cmd.angular_velocities = action.tolist()
         self.motor_cmd_pub.publish(motor_cmd)
 
+        # wait specified time for the action to take effect
+        rospy.sleep(TIME_STEP)
+
         # get the new observation
         observation = self._get_obs()
         info = self._get_info()
         reward = -info["distance"]
         terminated = info["distance"] < 0.1
+        truncated = False
 
-        return observation, reward, terminated, False, info
+        return observation, reward, terminated, truncated, info
 
 
 if __name__ == "__main__":
     try:
+        # register the environment
         gym.register(
             id="BebopEnv-v0",
             entry_point=BebopEnv,
         )
         env = gym.make(
             "BebopEnv-v0",
-            max_episode_steps=1000,
+            max_episode_steps=MAX_STEPS,
         )
+
+        # run the learning loop
+        for episode in tqdm(range(N_EPISODES)):
+            obs, info = env.reset()
+            done = False
+            while not done:
+                action = env.action_space.sample()
+                obs, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+            rospy.loginfo(
+                f"Episode {episode} finished with precision {info['distance']}"
+            )
+        env.close()
+
     except rospy.ROSInterruptException:
         pass
