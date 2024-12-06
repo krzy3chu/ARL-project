@@ -16,12 +16,9 @@ import numpy as np
 
 
 # Constants
-MIN_SPAWN_POSITION = -5
 MAX_SPAWN_POSITION = 5
-MIN_OBSERVE_POSITION = -10
 MAX_OBSERVE_POSITION = 10
 TARGET_POSITION = np.array([0, 0, 5], dtype=np.float32)
-MIN_ROTOR_SPEED = -1000
 MAX_ROTOR_SPEED = 1000
 TIME_STEP = 0.05
 
@@ -39,13 +36,13 @@ class BebopEnv(gym.Env):
         self.observation_space = gym.spaces.Dict(
             {
                 "agent": gym.spaces.Box(
-                    MIN_OBSERVE_POSITION,
+                    -MAX_OBSERVE_POSITION,
                     MAX_OBSERVE_POSITION,
                     shape=(3,),
                     dtype=np.float32,
                 ),
                 "target": gym.spaces.Box(
-                    MIN_OBSERVE_POSITION,
+                    -MAX_OBSERVE_POSITION,
                     MAX_OBSERVE_POSITION,
                     shape=(3,),
                     dtype=np.float32,
@@ -55,7 +52,7 @@ class BebopEnv(gym.Env):
 
         # actions corresponding to motor commands
         self.action_space = gym.spaces.Box(
-            low=MIN_ROTOR_SPEED, high=MAX_ROTOR_SPEED, shape=(4,), dtype=np.float32
+            low=-MAX_ROTOR_SPEED, high=MAX_ROTOR_SPEED, shape=(4,), dtype=np.float32
         )
 
         # ROS integration
@@ -111,8 +108,9 @@ class BebopEnv(gym.Env):
         self.reset_world_service()
 
         # spawn bebop at a random position
-        position_range = MAX_SPAWN_POSITION - MIN_SPAWN_POSITION
-        self._agent_location = np.random.rand(3) * position_range + MIN_SPAWN_POSITION
+        self._agent_location = np.random.uniform(
+            -MAX_SPAWN_POSITION, MAX_SPAWN_POSITION, 3
+        )
         new_bebop_state = ModelState()
         new_bebop_state.model_name = "bebop"
         new_bebop_state.pose.position.x = self._agent_location[0]
@@ -140,8 +138,13 @@ class BebopEnv(gym.Env):
         # get the new observation
         observation = self._get_obs()
         info = self._get_info()
-        reward = -info["distance"]
         terminated = info["distance"] < 0.1
         truncated = False
+
+        # calculate the reward
+        if terminated:
+            reward = 100
+        else:
+            reward = -info["distance"]
 
         return observation, reward, terminated, truncated, info
