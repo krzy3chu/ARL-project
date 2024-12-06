@@ -47,7 +47,7 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     cmake \
     && rm -rf /var/lib/apt/lists/*
-    
+
 # Install gazebo
 RUN apt-get update && apt-get install -y \
     gazebo9 \
@@ -55,7 +55,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 ENV CMAKE_PREFIX_PATH=/root/parrot_arsdk
-    
+
 # Workspace initialization
 RUN /bin/bash -c "source /opt/ros/melodic/setup.bash && \
     mkdir -p /root/catkin_ws/src && \
@@ -71,7 +71,14 @@ RUN /bin/bash -c "source /opt/ros/melodic/setup.bash && \
     cd parrot_arsdk && \
     chmod +x script/download_and_strip_arsdk.sh && \
     ./script/download_and_strip_arsdk.sh "
-    
+
+# Setup python3.8 venv
+RUN apt-get update && apt-get install -y python3-yaml python3.8 && \
+    python3.8 -m pip install virtualenv && \
+    cd /root/catkin_ws && \
+    python3.8 -m virtualenv .venv && \
+    .venv/bin/pip install rospkg catkin_pkg gym tqdm
+
 # Modify CMakeLists.txt in BebopS
 RUN /bin/bash -c "sed -i 's/hovering_example/hovering_example2/' /root/catkin_ws/src/BebopS/CMakeLists.txt"
 
