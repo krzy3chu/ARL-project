@@ -16,18 +16,20 @@ import numpy as np
 
 
 # Constants
-STATE_DIM = 11  # position in 'z' (1), orientation (4), linear velocity (3), angular velocity (3)
-TARGET_STATE = np.array([5] + 3 * [0] + [1] + 6 * [0], dtype=np.float32)
-MAX_SPAWN_POSITION = 5
+STATE_DIM = (
+    13  # position (3), orientation (4), linear velocity (3), angular velocity (3)
+)
+TARGET_STATE = np.array([0, 0, 1] + 3 * [0] + [1] + 6 * [0], dtype=np.float32)
+MAX_SPAWN_POSITION = 0
 MAX_POSITION = 10
 MAX_ORIENTATION = 1  # for quaternions
-MAX_LINEAR_VELOCITY = 20
-MAX_ANGULAR_VELOCITY = 20
+MAX_LINEAR_VELOCITY = 25
+MAX_ANGULAR_VELOCITY = 25
 MAX_ROTOR_SPEED = 1000
 TIME_STEP = 0.05
-POSITION_THRESHOLD = 0.1
-LINEAR_VELOCITY_THRESHOLD = 0.1
-ANGULAR_VELOCITY_THRESHOLD = 0.1
+MIN_HEIGHT = 1.0
+LINEAR_VELOCITY_THRESHOLD = 0.05
+ANGULAR_VELOCITY_THRESHOLD = 0.05
 
 
 class BebopEnv(gym.Env):
@@ -35,11 +37,11 @@ class BebopEnv(gym.Env):
         super(BebopEnv, self).__init__()
         rospy.init_node("rl_train", anonymous=True)
 
-        self._agent_state = -np.ones(STATE_DIM, dtype=np.float32)
-        self._target_location = -np.ones(STATE_DIM, dtype=np.float32)
+        self.agent_state = -np.ones(STATE_DIM, dtype=np.float32)
+        self.target_location = -np.ones(STATE_DIM, dtype=np.float32)
 
-        observation_space_max = np.array(
-            [MAX_POSITION]
+        self.observation_space_max = np.array(
+            3 * [MAX_POSITION]
             + 4 * [MAX_ORIENTATION]
             + 3 * [MAX_LINEAR_VELOCITY]
             + 3 * [MAX_ANGULAR_VELOCITY],
@@ -48,22 +50,20 @@ class BebopEnv(gym.Env):
         self.observation_space = gym.spaces.Dict(
             {
                 "agent": gym.spaces.Box(
-                    low=-observation_space_max,
-                    high=observation_space_max,
+                    low=-self.observation_space_max,
+                    high=self.observation_space_max,
                     dtype=np.float32,
                 ),
                 "target": gym.spaces.Box(
-                    low=-observation_space_max,
-                    high=observation_space_max,
+                    low=-self.observation_space_max,
+                    high=self.observation_space_max,
                     dtype=np.float32,
                 ),
             }
         )
 
         # actions corresponding to motor commands
-        self.action_space = gym.spaces.Box(
-            low=-MAX_ROTOR_SPEED, high=MAX_ROTOR_SPEED, shape=(4,), dtype=np.float32
-        )
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(4,), dtype=np.float32)
 
         # ROS integration
         self.bebop_state = ModelState()
@@ -92,10 +92,20 @@ class BebopEnv(gym.Env):
         except ValueError:
             rospy.logwarn("Bebop model not found in ModelStates")
 
+    def upright(self, orientation):
+        # returns -1 if the agent is upside down, 1 if is upright
+        x, y, z, w = orientation
+        # upright = 2 * (x * z - w * y)
+        # upright += (1 - 2 * (x**2 + y**2))
+        upright = x**2 - y**2 - z**2 + w**2
+        return upright
+
     def _get_obs(self):
         # convert the bebop state to agent location
-        self._agent_state = np.array(
+        self.agent_state = np.array(
             [
+                self.bebop_state.pose.position.x,
+                self.bebop_state.pose.position.y,
                 self.bebop_state.pose.position.z,
                 self.bebop_state.pose.orientation.x,
                 self.bebop_state.pose.orientation.y,
@@ -109,19 +119,27 @@ class BebopEnv(gym.Env):
                 self.bebop_state.twist.angular.z,
             ]
         ).astype(np.float32)
-        return {"agent": self._agent_state, "target": self._target_location}
+
+        # clip the agent state
+        self.agent_state = np.clip(
+            self.agent_state, -self.observation_space_max, self.observation_space_max
+        )
+
+        return {
+            "agent": self.agent_state / self.observation_space_max,
+            "target": self.target_location,
+        }
 
     def _get_info(self):
         # get agent state information
         return {
-            "z_position": self._agent_state[0],
-            "z_distance": abs(self._agent_state[0] - self._target_location[0]),
-            "orientation": self._agent_state[1:5],
-            "orientation_distance": np.dot(
-                self._agent_state[1:5], self._target_location[1:5]
+            "position": self.agent_state[0:3],
+            "distance": np.linalg.norm(
+                self.agent_state[:3] - self.target_location[:3], ord=2
             ),
-            "linear_velocity": np.linalg.norm(self._agent_state[5:9], ord=2),
-            "angular_velocity": np.linalg.norm(self._agent_state[9:], ord=2),
+            "upright": self.upright(self.agent_state[3:7]),
+            "linear_velocity": np.linalg.norm(self.agent_state[7:11], ord=2),
+            "angular_velocity": np.linalg.norm(self.agent_state[11:], ord=2),
         }
 
     def reset(self, seed: int = None, options: dict = None):
@@ -130,26 +148,25 @@ class BebopEnv(gym.Env):
         rospy.loginfo("Resetting world, spawning Bebop at random position")
         self.reset_world_service()
 
-        # spawn bebop at a random position with zero velocity
-        random_z = np.random.rand() * 2 * MAX_SPAWN_POSITION
+        # spawn bebop at zero position with zero velocity
         zero_quaternion = [0, 0, 0, 1]
-        self._agent_state = np.array(
-            [random_z] + zero_quaternion + 6 * [0], dtype=np.float32
+        self.agent_state = np.array(
+            3 * [0] + zero_quaternion + 6 * [0], dtype=np.float32
         )
         new_bebop_state = ModelState()
         new_bebop_state.model_name = "bebop"
-        new_bebop_state.pose.position.z = self._agent_state[0]
         self.set_model_state_service(new_bebop_state)
 
         # set the target location
-        self._target_location = TARGET_STATE
+        self.target_location = TARGET_STATE
 
         return self._get_obs(), self._get_info()
 
     def step(self, action):
         # send the motor commands to the bebop
         motor_cmd = Actuators()
-        motor_cmd.angular_velocities = [a * MAX_ROTOR_SPEED for a in action.tolist()]
+        action *= MAX_ROTOR_SPEED
+        motor_cmd.angular_velocities = action
         self.motor_cmd_pub.publish(motor_cmd)
 
         # wait specified time for the action to take effect
@@ -163,17 +180,18 @@ class BebopEnv(gym.Env):
 
         # calculate the reward
         reward = 0
-        reward -= info["z_distance"]
-        reward += (info["orientation_distance"] - 1) * 5
-        reward -= info["linear_velocity"]
+        reward += (info["position"][2] - MIN_HEIGHT) * 20
+        reward += (info["upright"] - 1)
+        # reward -= info["linear_velocity"]
         reward -= info["angular_velocity"]
         if (
-            info["z_distance"] < POSITION_THRESHOLD
-            and info["linear_velocity"] < LINEAR_VELOCITY_THRESHOLD
-            and info["angular_velocity"] < ANGULAR_VELOCITY_THRESHOLD
+            info["position"][2] > MIN_HEIGHT
+            # and info["linear_velocity"] < LINEAR_VELOCITY_THRESHOLD
+            # and info["angular_velocity"] < ANGULAR_VELOCITY_THRESHOLD
         ):
             terminated = True
             rospy.loginfo("Target reached")
-            reward += 50
+            reward += 10
+        reward /= 10
 
         return observation, reward, terminated, truncated, info
