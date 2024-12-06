@@ -149,7 +149,7 @@ class BebopEnv(gym.Env):
     def step(self, action):
         # send the motor commands to the bebop
         motor_cmd = Actuators()
-        motor_cmd.angular_velocities = action.tolist()
+        motor_cmd.angular_velocities = [a * MAX_ROTOR_SPEED for a in action.tolist()]
         self.motor_cmd_pub.publish(motor_cmd)
 
         # wait specified time for the action to take effect
@@ -167,7 +167,6 @@ class BebopEnv(gym.Env):
         reward += (info["orientation_distance"] - 1) * 5
         reward -= info["linear_velocity"]
         reward -= info["angular_velocity"]
-
         if (
             info["z_distance"] < POSITION_THRESHOLD
             and info["linear_velocity"] < LINEAR_VELOCITY_THRESHOLD

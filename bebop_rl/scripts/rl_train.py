@@ -4,14 +4,14 @@
 import rospy
 
 import gym
-from tqdm import tqdm
+from stable_baselines3 import PPO
 
 from bebop_env import BebopEnv
 
 
 # Constants
-MAX_STEPS = 200
-N_EPISODES = 20
+N_STEPS = 150
+N_EPISODES = 500
 
 
 if __name__ == "__main__":
@@ -22,22 +22,26 @@ if __name__ == "__main__":
             entry_point=BebopEnv,
         )
         env = gym.make(
-            "BebopEnv-v0",
-            max_episode_steps=MAX_STEPS,
+            "BebopEnv-v0", 
+            max_episode_steps=N_STEPS
         )
 
-        # run the learning loop
-        for episode in tqdm(range(N_EPISODES)):
-            obs, info = env.reset()
-            done = False
-            while not done:
-                # do random action
-                action = env.action_space.sample()
-                obs, reward, terminated, truncated, info = env.step(action)
-                done = terminated or truncated
-            rospy.loginfo(
-                f"Episode {episode} finished with reward {reward}"
-            )
+        model = PPO(
+            "MultiInputPolicy",
+            env, 
+            n_steps=N_STEPS, 
+            batch_size=N_STEPS, 
+            verbose=1
+        )
+
+        model.learn(total_timesteps=N_STEPS * N_EPISODES)
+        model.save("ppo_bebop")
+
+        obs, info = env.reset()
+        while True:
+            action, _state = model.predict(obs)
+            obs, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
         env.close()
 
     except rospy.ROSInterruptException:
