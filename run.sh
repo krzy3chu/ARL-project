@@ -17,6 +17,8 @@ if ! [ -f "${XAUTH}" ]; then
   chmod 644 "${XAUTH}"
 fi
 
+xhost +local:`docker inspect --format='{{ .Config.Hostname }}' ${NAME}`
+
 if [ "$(docker ps -aq -f status=exited -f name="${NAME}")" ]; then
   # Start the existing container and attach to it
   docker start "${NAME}"

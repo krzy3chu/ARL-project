@@ -180,10 +180,10 @@ class BebopEnv(gym.Env):
 
         # calculate the reward
         reward = 0
-        reward += (info["position"][2] - MIN_HEIGHT) * 20
-        reward += (info["upright"] - 1)
+        reward += (info["position"][2]) * 10  # 0->+10
+        reward += (info["upright"] - 1) / 2  # -1->0
         # reward -= info["linear_velocity"]
-        reward -= info["angular_velocity"]
+        reward -= info["angular_velocity"] / MAX_ANGULAR_VELOCITY  # -1->0
         if (
             info["position"][2] > MIN_HEIGHT
             # and info["linear_velocity"] < LINEAR_VELOCITY_THRESHOLD
@@ -191,7 +191,6 @@ class BebopEnv(gym.Env):
         ):
             terminated = True
             rospy.loginfo("Target reached")
-            reward += 10
         reward /= 10
 
         return observation, reward, terminated, truncated, info

@@ -13,7 +13,7 @@ from bebop_env import BebopEnv
 # Constants
 N_STEPS = 150
 N_EPISODES = 50
-MODEL_PATH = "models/ppo_bebop_fly-v1.1"
+MODEL_PATH = "models/ppo_bebop_fly-v1.0"
 
 
 if __name__ == "__main__":
@@ -36,6 +36,7 @@ if __name__ == "__main__":
         # training loop
         model.learn(total_timesteps=N_STEPS * N_EPISODES)
         model.save(MODEL_PATH)
+        rospy.loginfo("Model saved as %s", MODEL_PATH)
 
         # test the model
         obs, info = env.reset()
