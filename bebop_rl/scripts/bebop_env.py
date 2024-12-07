@@ -99,7 +99,7 @@ class BebopEnv(gym.Env):
     def upright(self, orientation):
         # returns -1 if the agent is upside down, 1 if is upright
         x, y, z, w = orientation
-        upright = x**2 - y**2 - z**2 + w**2
+        upright = 1 - 2 * (x**2 + y**2)
         return upright
 
     def _get_obs(self):
@@ -168,6 +168,7 @@ class BebopEnv(gym.Env):
         # send the motor commands to the bebop
         motor_cmd = Actuators()
         action *= MAX_ROTOR_SPEED
+        action = np.clip(action, 0, MAX_ROTOR_SPEED)
         motor_cmd.angular_velocities = action
         self.motor_cmd_pub.publish(motor_cmd)
 
