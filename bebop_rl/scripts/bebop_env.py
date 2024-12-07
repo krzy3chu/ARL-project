@@ -13,13 +13,17 @@ from std_srvs.srv import Empty
 
 import gym
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 
 # Constants
 STATE_DIM = (
     13  # position (3), orientation (4), linear velocity (3), angular velocity (3)
 )
-TARGET_STATE = np.array([0, 0, 1] + 3 * [0] + [1] + 6 * [0], dtype=np.float32)
+TARGET_HEIGHT = 1
+TARGET_STATE = np.array(
+    [0, 0, TARGET_HEIGHT] + 3 * [0] + [1] + 6 * [0], dtype=np.float32
+)
 MAX_SPAWN_POSITION = 0
 MAX_POSITION = 10
 MAX_ORIENTATION = 1  # for quaternions
@@ -27,7 +31,6 @@ MAX_LINEAR_VELOCITY = 25
 MAX_ANGULAR_VELOCITY = 25
 MAX_ROTOR_SPEED = 1000
 TIME_STEP = 0.05
-MIN_HEIGHT = 1.0
 LINEAR_VELOCITY_THRESHOLD = 0.05
 ANGULAR_VELOCITY_THRESHOLD = 0.05
 
@@ -101,6 +104,11 @@ class BebopEnv(gym.Env):
         x, y, z, w = orientation
         upright = 1 - 2 * (x**2 + y**2)
         return upright
+    
+    def quaternion_to_rpy(self, quaternion):
+        r = R.from_quat(quaternion)
+        roll, pitch, yaw = r.as_euler('xyz')
+        return roll, pitch, yaw
 
     def _get_obs(self):
         # convert the bebop state to agent location
@@ -134,12 +142,13 @@ class BebopEnv(gym.Env):
 
     def _get_info(self):
         # get agent state information
+        roll, pitch, yaw = self.quaternion_to_rpy(self.agent_state[3:7])
         return {
             "position": self.agent_state[0:3],
-            "distance": np.linalg.norm(
-                self.agent_state[:3] - self.target_location[:3], ord=2
-            ),
+            "distance_z": abs(self.agent_state[2] - self.target_location[2]),
             "upright": self.upright(self.agent_state[3:7]),
+            "roll": roll,
+            "pitch": pitch,
             "linear_velocity": np.linalg.norm(self.agent_state[7:10], ord=2),
             "angular_velocity": np.linalg.norm(self.agent_state[10:], ord=2),
         }
@@ -182,33 +191,41 @@ class BebopEnv(gym.Env):
         truncated = False
 
         # calculate the reward
-        reward_position = (info["position"][2]) * 2  # 0->+2
-        if info["position"][2] > MIN_HEIGHT:
-            reward_position = 2
-            # terminated = True
-            # rospy.loginfo("Target reached")
-        reward_upright = np.clip(info["upright"] - 1, -2, 0)
-        reward_linear_velocity = np.clip(-info["linear_velocity"] / MAX_LINEAR_VELOCITY, -1, 0)  # -1->0
-        reward_angular_velocity = (
-            np.clip(-info["angular_velocity"] / MAX_ANGULAR_VELOCITY, -1, 0)
-        )  # -1->0
+        reward_position = 3 * (1 - np.clip(info["distance_z"] / TARGET_HEIGHT, 0, 1))
+        penalty_upright = np.clip( - (info["upright"] - 1) / 2, 0, 1)
+        penalty_roll = np.clip(abs(info["roll"] / np.pi), 0, 1)
+        penalty_pitch = np.clip(abs(info["pitch"] / np.pi), 0, 1)
+        penalty_angular_velocity = np.clip(
+            info["angular_velocity"] / MAX_ANGULAR_VELOCITY, 0, 1
+        )
+        penalty_linear_velocity = np.clip(
+            info["linear_velocity"] / MAX_LINEAR_VELOCITY, 0, 1
+        )
         reward_total = (
             reward_position
-            + reward_upright
-            + reward_linear_velocity
-            + reward_angular_velocity
-        ) / 2  # -1->+1
+            - penalty_upright
+            - penalty_roll
+            - penalty_pitch
+            - penalty_angular_velocity
+            - penalty_linear_velocity
+        ) / 3
         reward_total = np.clip(reward_total, -1, 1)
 
         # publish for debugging
         msg = Float64MultiArray()
         msg.data = [
             reward_position,
-            reward_upright,
-            reward_linear_velocity,
-            reward_angular_velocity,
+            penalty_upright,
+            penalty_roll,
+            penalty_pitch,
+            penalty_angular_velocity,
+            penalty_linear_velocity,
             reward_total,
         ]
         self.reward_pub.publish(msg)
+
+        # terminate if agent is upside down
+        if penalty_upright > 0.95:
+            terminated = True
 
         return observation, reward_total, terminated, truncated, info
