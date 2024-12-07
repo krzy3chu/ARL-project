@@ -12,8 +12,8 @@ from bebop_env import BebopEnv
 
 # Constants
 N_STEPS = 150
-N_EPISODES = 100
-MODEL_PATH = "models/ppo_bebop_fly-v2.3"
+N_EPISODES = 20
+MODEL_PATH = "models/ppo_bebop_fly-v2.4"
 
 
 if __name__ == "__main__":
@@ -27,14 +27,22 @@ if __name__ == "__main__":
 
         # load the model if it exists, otherwise create a new one
         try:
-            model = PPO.load(MODEL_PATH,  env=env, n_steps=N_STEPS, batch_size=N_STEPS, verbose=1)
+            model = PPO.load(
+                MODEL_PATH, env=env, n_steps=N_STEPS, batch_size=N_STEPS, verbose=1
+            )
             rospy.loginfo("Model loaded successfully")
         except FileNotFoundError:
-            model = PPO("MultiInputPolicy", env=env, n_steps=N_STEPS, batch_size=N_STEPS, verbose=1)
+            model = PPO(
+                "MultiInputPolicy",
+                env=env,
+                n_steps=N_STEPS,
+                batch_size=N_STEPS,
+                verbose=1,
+            )
             rospy.loginfo("No existing model found, creating new model")
 
         # training loop
-        model.learn(total_timesteps=N_STEPS * N_EPISODES)
+        model.learn(total_timesteps=N_STEPS * N_EPISODES, progress_bar=True)
         model.save(MODEL_PATH)
         rospy.loginfo("Model saved as %s", MODEL_PATH)
 

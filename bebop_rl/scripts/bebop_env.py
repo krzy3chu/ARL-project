@@ -8,7 +8,7 @@ from gazebo_msgs.msg import ModelState, ModelStates
 from gazebo_msgs.srv import SetModelState
 from geometry_msgs.msg import Pose
 from mav_msgs.msg import Actuators
-from std_msgs.msg import String
+from std_msgs.msg import String, Float64MultiArray
 from std_srvs.srv import Empty
 
 import gym
@@ -73,6 +73,7 @@ class BebopEnv(gym.Env):
         self.motor_cmd_pub = rospy.Publisher(
             "/bebop/command/motors", Actuators, queue_size=10
         )
+
         self.reset_world_service = rospy.ServiceProxy("/gazebo/reset_world", Empty)
         self.set_model_state_service = rospy.ServiceProxy(
             "/gazebo/set_model_state", SetModelState
@@ -80,6 +81,9 @@ class BebopEnv(gym.Env):
 
         self.reset_world_service.wait_for_service()
         self.set_model_state_service.wait_for_service()
+
+        # Debugging topic
+        self.reward_pub = rospy.Publisher("/reward", Float64MultiArray, queue_size=10)
 
     def bebop_state_callback(self, data):
         try:
@@ -95,8 +99,6 @@ class BebopEnv(gym.Env):
     def upright(self, orientation):
         # returns -1 if the agent is upside down, 1 if is upright
         x, y, z, w = orientation
-        # upright = 2 * (x * z - w * y)
-        # upright += (1 - 2 * (x**2 + y**2))
         upright = x**2 - y**2 - z**2 + w**2
         return upright
 
@@ -138,7 +140,7 @@ class BebopEnv(gym.Env):
                 self.agent_state[:3] - self.target_location[:3], ord=2
             ),
             "upright": self.upright(self.agent_state[3:7]),
-            "linear_velocity_xy": np.linalg.norm(self.agent_state[7:9], ord=2),
+            "linear_velocity": np.linalg.norm(self.agent_state[7:10], ord=2),
             "angular_velocity": np.linalg.norm(self.agent_state[10:], ord=2),
         }
 
@@ -179,14 +181,33 @@ class BebopEnv(gym.Env):
         truncated = False
 
         # calculate the reward
-        reward = (info["position"][2]) * 2  # 0->+10
-        if (info["position"][2] > MIN_HEIGHT):
+        reward_position = (info["position"][2]) * 2  # 0->+2
+        if info["position"][2] > MIN_HEIGHT:
+            reward_position = 2
             # terminated = True
-            reward = 2
             # rospy.loginfo("Target reached")
-        reward += (info["upright"] - 1) / 2  # -1->0
-        reward -= info["linear_velocity_xy"] / MAX_LINEAR_VELOCITY  # -1->0
-        reward -= info["angular_velocity"] / MAX_ANGULAR_VELOCITY  # -1->0
-        reward /= 2
+        reward_upright = np.clip(info["upright"] - 1, -2, 0)
+        reward_linear_velocity = np.clip(-info["linear_velocity"] / MAX_LINEAR_VELOCITY, -1, 0)  # -1->0
+        reward_angular_velocity = (
+            np.clip(-info["angular_velocity"] / MAX_ANGULAR_VELOCITY, -1, 0)
+        )  # -1->0
+        reward_total = (
+            reward_position
+            + reward_upright
+            + reward_linear_velocity
+            + reward_angular_velocity
+        ) / 2  # -1->+1
+        reward_total = np.clip(reward_total, -1, 1)
 
-        return observation, reward, terminated, truncated, info
+        # publish for debugging
+        msg = Float64MultiArray()
+        msg.data = [
+            reward_position,
+            reward_upright,
+            reward_linear_velocity,
+            reward_angular_velocity,
+            reward_total,
+        ]
+        self.reward_pub.publish(msg)
+
+        return observation, reward_total, terminated, truncated, info
