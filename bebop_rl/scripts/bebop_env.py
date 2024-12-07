@@ -138,8 +138,8 @@ class BebopEnv(gym.Env):
                 self.agent_state[:3] - self.target_location[:3], ord=2
             ),
             "upright": self.upright(self.agent_state[3:7]),
-            "linear_velocity": np.linalg.norm(self.agent_state[7:11], ord=2),
-            "angular_velocity": np.linalg.norm(self.agent_state[11:], ord=2),
+            "linear_velocity_xy": np.linalg.norm(self.agent_state[7:9], ord=2),
+            "angular_velocity": np.linalg.norm(self.agent_state[10:], ord=2),
         }
 
     def reset(self, seed: int = None, options: dict = None):
@@ -179,18 +179,14 @@ class BebopEnv(gym.Env):
         truncated = False
 
         # calculate the reward
-        reward = 0
-        reward += (info["position"][2]) * 10  # 0->+10
+        reward = (info["position"][2]) * 2  # 0->+10
+        if (info["position"][2] > MIN_HEIGHT):
+            # terminated = True
+            reward = 2
+            # rospy.loginfo("Target reached")
         reward += (info["upright"] - 1) / 2  # -1->0
-        # reward -= info["linear_velocity"]
+        reward -= info["linear_velocity_xy"] / MAX_LINEAR_VELOCITY  # -1->0
         reward -= info["angular_velocity"] / MAX_ANGULAR_VELOCITY  # -1->0
-        if (
-            info["position"][2] > MIN_HEIGHT
-            # and info["linear_velocity"] < LINEAR_VELOCITY_THRESHOLD
-            # and info["angular_velocity"] < ANGULAR_VELOCITY_THRESHOLD
-        ):
-            terminated = True
-            rospy.loginfo("Target reached")
-        reward /= 10
+        reward /= 2
 
         return observation, reward, terminated, truncated, info

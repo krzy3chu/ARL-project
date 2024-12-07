@@ -12,8 +12,8 @@ from bebop_env import BebopEnv
 
 # Constants
 N_STEPS = 150
-N_EPISODES = 50
-MODEL_PATH = "models/ppo_bebop_fly-v1.0"
+N_EPISODES = 100
+MODEL_PATH = "models/ppo_bebop_fly-v2.3"
 
 
 if __name__ == "__main__":
