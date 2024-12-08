@@ -156,7 +156,6 @@ class BebopEnv(gym.Env):
     def reset(self, seed: int = None, options: dict = None):
         # reset the Gazebo world
         super().reset(seed=seed)
-        # rospy.loginfo("Resetting world, spawning Bebop at random position")
         self.reset_world_service()
 
         # spawn bebop at zero position with zero velocity
@@ -197,7 +196,7 @@ class BebopEnv(gym.Env):
         reward_position = np.clip(1 - abs(info["position"][2] - TARGET_HEIGHT), -1, 1)
         penalty_upright = np.clip(-(info["upright"] - 1) / 2, 0, 1)
         penalty_roll = np.clip(abs(info["roll"] / np.pi), 0, 1)
-        penalty_pitch = np.clip(abs(info["pitch"] / np.pi), 0, 1)
+        penalty_pitch = np.clip(abs(info["pitch"] / np.pi * 2), 0, 1)
         penalty_angular_velocity = np.clip(
             info["angular_velocity"] / MAX_ANGULAR_VELOCITY, 0, 1
         )
@@ -206,11 +205,11 @@ class BebopEnv(gym.Env):
         )
         reward_total = (
             reward_position
-            - penalty_upright
-            - penalty_roll
-            - penalty_pitch
-            - penalty_angular_velocity / 2
-            - penalty_linear_velocity / 2
+            # - penalty_upright
+            # - penalty_roll
+            - 2 * penalty_pitch
+            # - penalty_angular_velocity / 2
+            # - penalty_linear_velocity / 2
         )
         reward_total = np.clip(reward_total, -1, 1)
 
