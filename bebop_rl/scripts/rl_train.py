@@ -13,8 +13,8 @@ from bebop_env import BebopEnv
 # Constants
 N_STEPS = 150
 N_EPISODES = 50
-MODEL_PATH = "models/ppo_bebop_fly-v7.4"
-
+# N_ITERATIONS = 8
+MODEL_PATH = "models/ppo_bebop_fly-v9.1"
 
 if __name__ == "__main__":
     try:
@@ -42,9 +42,10 @@ if __name__ == "__main__":
             rospy.loginfo("No existing model found, creating new model")
 
         # training loop
+        # for i in range(N_ITERATIONS):
         model.learn(total_timesteps=N_STEPS * N_EPISODES, progress_bar=True)
         model.save(MODEL_PATH)
-        rospy.loginfo("Model saved as %s", MODEL_PATH)
+        rospy.loginfo("Model saved as %s", (MODEL_PATH))
 
         # test the model
         obs, info = env.reset()

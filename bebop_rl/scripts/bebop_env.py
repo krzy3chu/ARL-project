@@ -30,7 +30,7 @@ MAX_ORIENTATION = 1  # for quaternions
 MAX_LINEAR_VELOCITY = 25
 MAX_ANGULAR_VELOCITY = 25
 MAX_ROTOR_SPEED = 750
-TIME_STEP = 0.05
+TIME_STEP = 0.01
 LINEAR_VELOCITY_THRESHOLD = 0.05
 ANGULAR_VELOCITY_THRESHOLD = 0.05
 
@@ -53,20 +53,22 @@ class BebopEnv(gym.Env):
         self.observation_space = gym.spaces.Dict(
             {
                 "agent": gym.spaces.Box(
-                    low=-self.observation_space_max,
-                    high=self.observation_space_max,
+                    low=-1,
+                    high=1,
+                    shape=(STATE_DIM,),
                     dtype=np.float32,
                 ),
                 "target": gym.spaces.Box(
-                    low=-self.observation_space_max,
-                    high=self.observation_space_max,
+                    low=-1,
+                    high=1,
+                    shape=(STATE_DIM,),
                     dtype=np.float32,
                 ),
             }
         )
 
         # actions corresponding to motor commands
-        self.action_space = gym.spaces.Box(low=0, high=1, shape=(2,), dtype=np.float32)
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32)
 
         # ROS integration
         self.bebop_state = ModelState()
@@ -176,7 +178,7 @@ class BebopEnv(gym.Env):
     def step(self, action):
         # send the motor commands to the bebop
         motor_cmd = Actuators()
-        action *= MAX_ROTOR_SPEED
+        action = (action + 1) * MAX_ROTOR_SPEED / 2
         action = np.clip(action, 0, MAX_ROTOR_SPEED)
         # pair the motors
         action = [action[0], action[0], action[1], action[1]]
@@ -207,15 +209,15 @@ class BebopEnv(gym.Env):
             reward_position
             # - penalty_upright
             # - penalty_roll
-            - 2 * penalty_pitch
-            # - penalty_angular_velocity / 2
-            # - penalty_linear_velocity / 2
+            - penalty_pitch
+            - penalty_angular_velocity
+            - penalty_linear_velocity
         )
         reward_total = np.clip(reward_total, -1, 1)
 
         # terminate if agent is upside down
         if (
-            penalty_upright > 0.95
+            penalty_pitch > 0.8
             or info["position"][2] <= 0.2
             or info["position"][2] >= self.observation_space_max[2]
         ):
@@ -226,8 +228,8 @@ class BebopEnv(gym.Env):
         msg = Float64MultiArray()
         msg.data = [
             reward_position,
-            penalty_upright,
-            penalty_roll,
+            # penalty_upright,
+            # penalty_roll,
             penalty_pitch,
             penalty_angular_velocity,
             penalty_linear_velocity,
