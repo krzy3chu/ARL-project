@@ -68,7 +68,7 @@ class BebopEnv(gym.Env):
         )
 
         # actions corresponding to motor commands
-        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32)
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(4,), dtype=np.float32)
 
         # ROS integration
         self.bebop_state = ModelState()
@@ -116,8 +116,8 @@ class BebopEnv(gym.Env):
         # convert the bebop state to agent location
         self.agent_state = np.array(
             [
-                0,
-                0,
+                self.bebop_state.pose.position.x,
+                self.bebop_state.pose.position.y,
                 self.bebop_state.pose.position.z,
                 self.bebop_state.pose.orientation.x,
                 self.bebop_state.pose.orientation.y,
@@ -180,8 +180,6 @@ class BebopEnv(gym.Env):
         motor_cmd = Actuators()
         action = (action + 1) * MAX_ROTOR_SPEED / 2
         action = np.clip(action, 0, MAX_ROTOR_SPEED)
-        # pair the motors
-        action = [action[0], action[0], action[1], action[1]]
         motor_cmd.angular_velocities = action
         self.motor_cmd_pub.publish(motor_cmd)
 
@@ -208,7 +206,7 @@ class BebopEnv(gym.Env):
         reward_total = (
             reward_position
             # - penalty_upright
-            # - penalty_roll
+            - penalty_roll
             - penalty_pitch
             - penalty_angular_velocity
             - penalty_linear_velocity
@@ -218,6 +216,7 @@ class BebopEnv(gym.Env):
         # terminate if agent is upside down
         if (
             penalty_pitch > 0.8
+            or penalty_roll > 0.8
             or info["position"][2] <= 0.2
             or info["position"][2] >= self.observation_space_max[2]
         ):
@@ -229,7 +228,7 @@ class BebopEnv(gym.Env):
         msg.data = [
             reward_position,
             # penalty_upright,
-            # penalty_roll,
+            penalty_roll,
             penalty_pitch,
             penalty_angular_velocity,
             penalty_linear_velocity,
