@@ -37,6 +37,7 @@ else
     --volume="${XAUTH}":"${XAUTH}" \
     --volume="${XSOCK}":"${XSOCK}" \
     --volume "${PWD}"/bebop_rl:/root/catkin_ws/src/bebop_rl \
+ 	--volume "${PWD}"/models:/root/catkin_ws/models \
     --network=host \
     --privileged \
     --gpus=all \

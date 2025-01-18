@@ -11,9 +11,10 @@ from bebop_env import BebopEnv
 
 
 # Constants
-N_STEPS = 150 * 50
-# N_ITERATIONS = 8
-MODEL_PATH = "models/ppo_bebop_fly-v10.5"
+N_STEPS = 500
+N_EPISODES = 100
+N_ITERATIONS = 1
+MODEL_PATH = "models/bebop_hover"
 
 if __name__ == "__main__":
     try:
@@ -27,7 +28,7 @@ if __name__ == "__main__":
         # load the model if it exists, otherwise create a new one
         try:
             model = PPO.load(
-                MODEL_PATH, env=env, n_steps=N_STEPS, batch_size=150, verbose=1
+                MODEL_PATH, env=env, n_steps=N_STEPS, batch_size=N_STEPS, verbose=1
             )
             rospy.loginfo("Model loaded successfully from path %s", MODEL_PATH)
         except FileNotFoundError:
@@ -41,18 +42,20 @@ if __name__ == "__main__":
             rospy.loginfo("No existing model found, creating new model")
 
         # training loop
-        # for i in range(N_ITERATIONS):
-        model.learn(total_timesteps=N_STEPS, progress_bar=True)
-        model.save(MODEL_PATH)
-        rospy.loginfo("Model saved as %s", (MODEL_PATH))
+        for i in range(N_ITERATIONS):
+            model.learn(total_timesteps=N_STEPS * N_EPISODES, progress_bar=True)
+            model.save(MODEL_PATH)
+            rospy.loginfo("Model saved as %s", (MODEL_PATH))
 
         # test the model
-        obs, info = env.reset()
         while True:
-            action, _state = model.predict(obs)
-            obs, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
-        env.close()
+            done = False
+            obs, info = env.reset()
+            while not done:
+                action, _state = model.predict(obs)
+                obs, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+            env.close()
 
     except rospy.ROSInterruptException:
         pass

@@ -24,7 +24,6 @@ TARGET_HEIGHT = 2
 TARGET_STATE = np.array(
     [0, 0, TARGET_HEIGHT] + 3 * [0] + [1] + 6 * [0], dtype=np.float32
 )
-MAX_SPAWN_POSITION = 0
 MAX_POSITION = 10
 MAX_ORIENTATION = 1  # for quaternions
 MAX_LINEAR_VELOCITY = 25
