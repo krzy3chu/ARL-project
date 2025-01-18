@@ -1,6 +1,8 @@
 # Bebop RL
 
-This project is designed to work with the Bebop drone using reinforcement learning techniques.
+## About the project
+
+The core component of the project is a package implementing the reinforcement learning process for drone control. The project also includes a Docker image with a prepared simulation of the Bebop Parrot drone in the Gazebo environment under ROS Melodic. Developed package implements a custom OpenAI Gym environment integrated with ROS interfaces for controlling a Bebop Parrot drone in the simulation. Project uses the PPO method from the Stable-Baselines3 library to train a drone control model.
 
 ## Getting Started
 
