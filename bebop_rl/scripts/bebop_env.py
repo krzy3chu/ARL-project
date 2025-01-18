@@ -8,19 +8,30 @@ from gazebo_msgs.msg import ModelState, ModelStates
 from gazebo_msgs.srv import SetModelState
 from geometry_msgs.msg import Pose
 from mav_msgs.msg import Actuators
-from std_msgs.msg import String
+from std_msgs.msg import String, Float64MultiArray
 from std_srvs.srv import Empty
 
 import gym
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 
 # Constants
-MAX_SPAWN_POSITION = 5
-MAX_OBSERVE_POSITION = 10
-TARGET_POSITION = np.array([0, 0, 5], dtype=np.float32)
-MAX_ROTOR_SPEED = 1000
-TIME_STEP = 0.05
+STATE_DIM = (
+    13  # position (3), orientation (4), linear velocity (3), angular velocity (3)
+)
+TARGET_HEIGHT = 2
+TARGET_STATE = np.array(
+    [0, 0, TARGET_HEIGHT] + 3 * [0] + [1] + 6 * [0], dtype=np.float32
+)
+MAX_POSITION = 10
+MAX_ORIENTATION = 1  # for quaternions
+MAX_LINEAR_VELOCITY = 25
+MAX_ANGULAR_VELOCITY = 25
+MAX_ROTOR_SPEED = 750
+TIME_STEP = 0.01
+LINEAR_VELOCITY_THRESHOLD = 0.05
+ANGULAR_VELOCITY_THRESHOLD = 0.05
 
 
 class BebopEnv(gym.Env):
@@ -28,32 +39,35 @@ class BebopEnv(gym.Env):
         super(BebopEnv, self).__init__()
         rospy.init_node("rl_train", anonymous=True)
 
-        # declate the agent and target location
-        self._agent_location = np.array([-1, -1, -1], dtype=np.float32)
-        self._target_location = np.array([-1, -1, -1], dtype=np.float32)
+        self.agent_state = -np.ones(STATE_DIM, dtype=np.float32)
+        self.target_location = -np.ones(STATE_DIM, dtype=np.float32)
 
-        # assume using only position as x, y, z
+        self.observation_space_max = np.array(
+            3 * [MAX_POSITION]
+            + 4 * [MAX_ORIENTATION]
+            + 3 * [MAX_LINEAR_VELOCITY]
+            + 3 * [MAX_ANGULAR_VELOCITY],
+            dtype=np.float32,
+        )
         self.observation_space = gym.spaces.Dict(
             {
                 "agent": gym.spaces.Box(
-                    -MAX_OBSERVE_POSITION,
-                    MAX_OBSERVE_POSITION,
-                    shape=(3,),
+                    low=-1,
+                    high=1,
+                    shape=(STATE_DIM,),
                     dtype=np.float32,
                 ),
                 "target": gym.spaces.Box(
-                    -MAX_OBSERVE_POSITION,
-                    MAX_OBSERVE_POSITION,
-                    shape=(3,),
+                    low=-1,
+                    high=1,
+                    shape=(STATE_DIM,),
                     dtype=np.float32,
                 ),
             }
         )
 
         # actions corresponding to motor commands
-        self.action_space = gym.spaces.Box(
-            low=-MAX_ROTOR_SPEED, high=MAX_ROTOR_SPEED, shape=(4,), dtype=np.float32
-        )
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(4,), dtype=np.float32)
 
         # ROS integration
         self.bebop_state = ModelState()
@@ -63,6 +77,7 @@ class BebopEnv(gym.Env):
         self.motor_cmd_pub = rospy.Publisher(
             "/bebop/command/motors", Actuators, queue_size=10
         )
+
         self.reset_world_service = rospy.ServiceProxy("/gazebo/reset_world", Empty)
         self.set_model_state_service = rospy.ServiceProxy(
             "/gazebo/set_model_state", SetModelState
@@ -70,6 +85,9 @@ class BebopEnv(gym.Env):
 
         self.reset_world_service.wait_for_service()
         self.set_model_state_service.wait_for_service()
+
+        # Debugging topic
+        self.reward_pub = rospy.Publisher("/reward", Float64MultiArray, queue_size=10)
 
     def bebop_state_callback(self, data):
         try:
@@ -82,54 +100,86 @@ class BebopEnv(gym.Env):
         except ValueError:
             rospy.logwarn("Bebop model not found in ModelStates")
 
+    def upright(self, orientation):
+        # returns -1 if the agent is upside down, 1 if is upright
+        x, y, z, w = orientation
+        upright = 1 - 2 * (x**2 + y**2)
+        return upright
+
+    def quaternion_to_rpy(self, quaternion):
+        r = R.from_quat(quaternion)
+        roll, pitch, yaw = r.as_euler("xyz")
+        return roll, pitch, yaw
+
     def _get_obs(self):
         # convert the bebop state to agent location
-        self._agent_location = np.array(
+        self.agent_state = np.array(
             [
                 self.bebop_state.pose.position.x,
                 self.bebop_state.pose.position.y,
                 self.bebop_state.pose.position.z,
+                self.bebop_state.pose.orientation.x,
+                self.bebop_state.pose.orientation.y,
+                self.bebop_state.pose.orientation.z,
+                self.bebop_state.pose.orientation.w,
+                self.bebop_state.twist.linear.x,
+                self.bebop_state.twist.linear.y,
+                self.bebop_state.twist.linear.z,
+                self.bebop_state.twist.angular.x,
+                self.bebop_state.twist.angular.y,
+                self.bebop_state.twist.angular.z,
             ]
         ).astype(np.float32)
-        return {"agent": self._agent_location, "target": self._target_location}
+
+        # clip the agent state
+        self.agent_state = np.clip(
+            self.agent_state, -self.observation_space_max, self.observation_space_max
+        )
+
+        return {
+            "agent": self.agent_state / self.observation_space_max,
+            "target": self.target_location / self.observation_space_max,
+        }
 
     def _get_info(self):
-        # calculate the distance between agent and target
+        # get agent state information
+        roll, pitch, yaw = self.quaternion_to_rpy(self.agent_state[3:7])
         return {
-            "distance": np.linalg.norm(
-                self._agent_location - self._target_location, ord=2
-            )
+            "position": self.agent_state[0:3],
+            "distance_z": abs(self.agent_state[2] - self.target_location[2]),
+            "upright": self.upright(self.agent_state[3:7]),
+            "roll": roll,
+            "pitch": pitch,
+            "linear_velocity": np.linalg.norm(self.agent_state[7:10], ord=2),
+            "angular_velocity": np.linalg.norm(self.agent_state[10:], ord=2),
         }
 
     def reset(self, seed: int = None, options: dict = None):
         # reset the Gazebo world
         super().reset(seed=seed)
-        rospy.loginfo("Resetting world, spawning Bebop at random position")
         self.reset_world_service()
 
-        # spawn bebop at a random position
-        self._agent_location = np.random.uniform(
-            -MAX_SPAWN_POSITION, MAX_SPAWN_POSITION, 3
+        # spawn bebop at zero position with zero velocity
+        zero_quaternion = [0, 0, 0, 1]
+        self.agent_state = np.array(
+            3 * [0] + zero_quaternion + 6 * [0], dtype=np.float32
         )
         new_bebop_state = ModelState()
+        new_bebop_state.pose.position.z = TARGET_HEIGHT
         new_bebop_state.model_name = "bebop"
-        new_bebop_state.pose.position.x = self._agent_location[0]
-        new_bebop_state.pose.position.y = self._agent_location[1]
-        new_bebop_state.pose.position.z = self._agent_location[2] + MAX_SPAWN_POSITION
         self.set_model_state_service(new_bebop_state)
 
         # set the target location
-        self._target_location = TARGET_POSITION
+        self.target_location = TARGET_STATE
 
-        observation = self._get_obs()
-        info = self._get_info()
-
-        return observation, info
+        return self._get_obs(), self._get_info()
 
     def step(self, action):
         # send the motor commands to the bebop
         motor_cmd = Actuators()
-        motor_cmd.angular_velocities = action.tolist()
+        action = (action + 1) * MAX_ROTOR_SPEED / 2
+        action = np.clip(action, 0, MAX_ROTOR_SPEED)
+        motor_cmd.angular_velocities = action
         self.motor_cmd_pub.publish(motor_cmd)
 
         # wait specified time for the action to take effect
@@ -138,13 +188,51 @@ class BebopEnv(gym.Env):
         # get the new observation
         observation = self._get_obs()
         info = self._get_info()
-        terminated = info["distance"] < 0.1
+        terminated = False
         truncated = False
 
         # calculate the reward
-        if terminated:
-            reward = 100
-        else:
-            reward = -info["distance"]
+        reward_position = np.clip(1 - abs(info["position"][2] - TARGET_HEIGHT), -1, 1)
+        penalty_upright = np.clip(-(info["upright"] - 1) / 2, 0, 1)
+        penalty_roll = np.clip(abs(info["roll"] / np.pi), 0, 1)
+        penalty_pitch = np.clip(abs(info["pitch"] / np.pi * 2), 0, 1)
+        penalty_angular_velocity = np.clip(
+            info["angular_velocity"] / MAX_ANGULAR_VELOCITY, 0, 1
+        )
+        penalty_linear_velocity = np.clip(
+            info["linear_velocity"] / MAX_LINEAR_VELOCITY, 0, 1
+        )
+        reward_total = (
+            reward_position
+            # - penalty_upright
+            - penalty_roll
+            - penalty_pitch
+            - penalty_angular_velocity
+            - penalty_linear_velocity
+        )
+        reward_total = np.clip(reward_total, -1, 1)
 
-        return observation, reward, terminated, truncated, info
+        # terminate if agent is upside down
+        if (
+            penalty_pitch > 0.8
+            or penalty_roll > 0.8
+            or info["position"][2] <= 0.2
+            or info["position"][2] >= self.observation_space_max[2]
+        ):
+            terminated = True
+            reward_total = -1
+
+        # publish for debugging
+        msg = Float64MultiArray()
+        msg.data = [
+            reward_position,
+            # penalty_upright,
+            penalty_roll,
+            penalty_pitch,
+            penalty_angular_velocity,
+            penalty_linear_velocity,
+            reward_total,
+        ]
+        self.reward_pub.publish(msg)
+
+        return observation, reward_total, terminated, truncated, info

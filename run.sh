@@ -17,6 +17,8 @@ if ! [ -f "${XAUTH}" ]; then
   chmod 644 "${XAUTH}"
 fi
 
+xhost +local:`docker inspect --format='{{ .Config.Hostname }}' ${NAME}`
+
 if [ "$(docker ps -aq -f status=exited -f name="${NAME}")" ]; then
   # Start the existing container and attach to it
   docker start "${NAME}"
@@ -35,6 +37,7 @@ else
     --volume="${XAUTH}":"${XAUTH}" \
     --volume="${XSOCK}":"${XSOCK}" \
     --volume "${PWD}"/bebop_rl:/root/catkin_ws/src/bebop_rl \
+ 	--volume "${PWD}"/models:/root/catkin_ws/models \
     --network=host \
     --privileged \
     --gpus=all \

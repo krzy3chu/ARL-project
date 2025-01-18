@@ -46,6 +46,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     cmake \
+    ros-melodic-plotjuggler-ros \
     && rm -rf /var/lib/apt/lists/*
 
 # Install gazebo
@@ -77,7 +78,7 @@ RUN apt-get update && apt-get install -y python3-yaml python3.8 && \
     python3.8 -m pip install virtualenv && \
     cd /root/catkin_ws && \
     python3.8 -m virtualenv .venv && \
-    .venv/bin/pip install rospkg catkin_pkg gym tqdm
+    .venv/bin/pip install rospkg catkin_pkg gym stable-baselines3[extra] shimmy scipy
 
 # Modify CMakeLists.txt in BebopS
 RUN /bin/bash -c "sed -i 's/hovering_example/hovering_example2/' /root/catkin_ws/src/BebopS/CMakeLists.txt"
