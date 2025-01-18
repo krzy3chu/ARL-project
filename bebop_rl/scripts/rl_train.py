@@ -6,11 +6,10 @@ import rospy
 import gym
 from stable_baselines3 import PPO
 
-
 from bebop_env import BebopEnv
 
 
-# Constants
+# constants
 N_STEPS = 500
 N_EPISODES = 100
 N_ITERATIONS = 1

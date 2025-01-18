@@ -16,7 +16,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 
-# Constants
+# constants
 STATE_DIM = (
     13  # position (3), orientation (4), linear velocity (3), angular velocity (3)
 )
@@ -86,7 +86,7 @@ class BebopEnv(gym.Env):
         self.reset_world_service.wait_for_service()
         self.set_model_state_service.wait_for_service()
 
-        # Debugging topic
+        # debugging topic
         self.reward_pub = rospy.Publisher("/reward", Float64MultiArray, queue_size=10)
 
     def bebop_state_callback(self, data):
@@ -99,12 +99,6 @@ class BebopEnv(gym.Env):
             self.bebop_state.reference_frame = "world"
         except ValueError:
             rospy.logwarn("Bebop model not found in ModelStates")
-
-    def upright(self, orientation):
-        # returns -1 if the agent is upside down, 1 if is upright
-        x, y, z, w = orientation
-        upright = 1 - 2 * (x**2 + y**2)
-        return upright
 
     def quaternion_to_rpy(self, quaternion):
         r = R.from_quat(quaternion)
@@ -147,7 +141,6 @@ class BebopEnv(gym.Env):
         return {
             "position": self.agent_state[0:3],
             "distance_z": abs(self.agent_state[2] - self.target_location[2]),
-            "upright": self.upright(self.agent_state[3:7]),
             "roll": roll,
             "pitch": pitch,
             "linear_velocity": np.linalg.norm(self.agent_state[7:10], ord=2),
@@ -193,7 +186,6 @@ class BebopEnv(gym.Env):
 
         # calculate the reward
         reward_position = np.clip(1 - abs(info["position"][2] - TARGET_HEIGHT), -1, 1)
-        penalty_upright = np.clip(-(info["upright"] - 1) / 2, 0, 1)
         penalty_roll = np.clip(abs(info["roll"] / np.pi), 0, 1)
         penalty_pitch = np.clip(abs(info["pitch"] / np.pi * 2), 0, 1)
         penalty_angular_velocity = np.clip(
@@ -204,7 +196,6 @@ class BebopEnv(gym.Env):
         )
         reward_total = (
             reward_position
-            # - penalty_upright
             - penalty_roll
             - penalty_pitch
             - penalty_angular_velocity
@@ -226,7 +217,6 @@ class BebopEnv(gym.Env):
         msg = Float64MultiArray()
         msg.data = [
             reward_position,
-            # penalty_upright,
             penalty_roll,
             penalty_pitch,
             penalty_angular_velocity,
