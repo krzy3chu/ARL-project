@@ -33,3 +33,8 @@ Run the project package
 ```
 rosrun bebop_rl rl_train.py
 ```
+
+## Result
+
+An example of the control policy in action is shown in the GIF below.
+![bebop_flying.gif](bebop_flying.gif)
